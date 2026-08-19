@@ -109,7 +109,7 @@ function processQueue(){
      var vp2=p.getViewport({scale:Math.min(2,220/vp.width)});
      var canvas=document.createElement('canvas');
      canvas.width=Math.floor(vp2.width);canvas.height=Math.floor(vp2.height);
-     return p.render({canvasContext:canvas,viewport:vp2}).promise.then(function(){it.thumb=canvas.toDataURL('image/png');doc.destroy();});
+     return p.render({canvasContext:canvas.getContext('2d'),viewport:vp2}).promise.then(function(){it.thumb=canvas.toDataURL('image/png');doc.destroy();});
     });
    });
   }).catch(function(){}).then(function(){it.done=true;processing=false;render();processQueue();});
