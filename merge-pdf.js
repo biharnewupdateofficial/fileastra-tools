@@ -1,4 +1,4 @@
-/* FileAstra - Merge PDF v4 | iLovePDF-style workspace */
+/* FileAstra - Merge PDF v5 | stable previews + merge */
 (function(){
 var root=document.getElementById('toolRoot');
 if(!root){return;}
@@ -8,6 +8,19 @@ var PDFLIB_SRC='https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.mi
 function loadJS(src,cb){var s=document.createElement('script');s.src=src;s.onload=function(){cb(false);};s.onerror=function(){cb(true);};document.head.appendChild(s);}
 loadJS(PDFJS_SRC,function(e){if(!e&&window.pdfjsLib){window.pdfjsLib.GlobalWorkerOptions.workerSrc=PDFJS_WORKER;}});
 loadJS(PDFLIB_SRC,function(){});
+var pdfjsReady=null;
+function ensurePdfjs(){
+ if(pdfjsReady){return pdfjsReady;}
+ pdfjsReady=new Promise(function(res){
+  var tries=0;
+  (function wait(){
+   if(window.pdfjsLib){if(window.pdfjsLib.GlobalWorkerOptions.workerSrc){res(true);}else{window.pdfjsLib.GlobalWorkerOptions.workerSrc=PDFJS_WORKER;res(true);}return;}
+   if(tries>40){res(false);return;}
+   tries++;setTimeout(wait,500);
+  })();
+ });
+ return pdfjsReady;
+}
 root.innerHTML='<style>'+
 '.mg-wrap{max-width:1400px;margin:0 auto}'+
 '.mg-hero{text-align:center;padding:50px 16px 40px}'+
@@ -29,7 +42,7 @@ root.innerHTML='<style>'+
 '.mg-x:hover{background:#fdeaea;color:#dc2626}'+
 '.mg-thumb{height:210px;display:flex;align-items:center;justify-content:center;background:#fafbfe;border:1px solid #eef0f6;border-radius:6px;overflow:hidden;margin-bottom:10px}'+
 '.mg-thumb img{max-width:100%;max-height:100%;object-fit:contain}'+
-'.mg-ph{color:#c3c6d4;font-size:24px}'+
+'.mg-ph{color:#c3c6d4;font-size:30px}'+
 '.mg-load{width:26px;height:26px;border:3px solid #e0e7ff;border-top-color:#4f46e5;border-radius:50%;animation:mgsp .8s linear infinite;display:inline-block}'+
 '@keyframes mgsp{to{transform:rotate(360deg)}}'+
 '.mg-nm{font-size:12.5px;font-weight:600;color:#4b4b55;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'+
@@ -43,7 +56,7 @@ root.innerHTML='<style>'+
 '.mg-side-foot{margin-top:auto;display:flex;flex-direction:column;gap:12px}'+
 '.mg-sort{background:#f4f5fa;border:none;border-radius:10px;padding:12px;font-weight:800;color:#4b4b55;cursor:pointer}'+
 '.mg-sort:hover{background:#e6e8f5}'+
-'.mg-go{background:#e02d2d;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;font-size:18px;font-weight:800;padding:17px;border-radius:12px;border:none;cursor:pointer;box-shadow:0 14px 34px rgba(79,70,229,.35)}'+
+'.mg-go{background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;font-size:18px;font-weight:800;padding:17px;border-radius:12px;border:none;cursor:pointer;box-shadow:0 14px 34px rgba(79,70,229,.35)}'+
 '.mg-go:disabled{opacity:.5;cursor:not-allowed}'+
 '.mg-busy{padding:80px 20px;text-align:center}'+
 '.mg-busy h2{font-size:30px;font-weight:900;margin-bottom:8px}'+
@@ -76,7 +89,7 @@ var zone=document.getElementById('mgZone'),btn=document.getElementById('mgBtn'),
 function fmtB(n){return n<1024?n+' B':(n<1048576)?(n/1024).toFixed(1)+' KB':(n/1048576).toFixed(2)+' MB';}
 function addFiles(fl){
  var added=0;
- for(var i=0;i<fl.length;i++){var f=fl[i];if(f.type==='application/pdf'||/\.pdf$/i.test(f.name)){var it={f:f,size:f.size,pages:null,thumb:null,bad:false};files.push(it);queue.push(it);added++;}}
+ for(var i=0;i<fl.length;i++){var f=fl[i];if(f.type==='application/pdf'||/\.pdf$/i.test(f.name)){var it={f:f,size:f.size,pages:null,thumb:null,bad:false,done:false};files.push(it);queue.push(it);added++;}}
  if(!added){return;}
  pick.style.display='none';work.style.display='flex';
  render();processQueue();
@@ -86,25 +99,28 @@ function processQueue(){
  var it=queue.shift();
  if(!it){return;}
  processing=true;
- if(!window.pdfjsLib){setTimeout(function(){processing=false;it.bad=true;render();processQueue();},800);return;}
- it.f.arrayBuffer().then(function(buf){
-  return window.pdfjsLib.getDocument({data:buf}).promise.then(function(doc){
-   it.pages=doc.numPages;
-   return doc.getPage(1).then(function(p){
-    var vp=p.getViewport({scale:1});
-    var vp2=p.getViewport({scale:Math.min(2,220/vp.width)});
-    var canvas=document.createElement('canvas');
-    canvas.width=Math.floor(vp2.width);canvas.height=Math.floor(vp2.height);
-    return p.render({canvasContext:canvas,viewport:vp2}).promise.then(function(){it.thumb=canvas.toDataURL('image/png');doc.destroy();});
+ ensurePdfjs().then(function(ok){
+  if(!ok){it.done=true;processing=false;render();processQueue();return;}
+  it.f.arrayBuffer().then(function(buf){
+   return window.pdfjsLib.getDocument({data:buf}).promise.then(function(doc){
+    it.pages=doc.numPages;
+    return doc.getPage(1).then(function(p){
+     var vp=p.getViewport({scale:1});
+     var vp2=p.getViewport({scale:Math.min(2,220/vp.width)});
+     var canvas=document.createElement('canvas');
+     canvas.width=Math.floor(vp2.width);canvas.height=Math.floor(vp2.height);
+     return p.render({canvasContext:canvas,viewport:vp2}).promise.then(function(){it.thumb=canvas.toDataURL('image/png');doc.destroy();});
+    });
    });
-  });
- }).catch(function(){it.bad=true;}).then(function(){processing=false;render();processQueue();});
+  }).catch(function(){}).then(function(){it.done=true;processing=false;render();processQueue();});
+ });
 }
 function render(){
  list.innerHTML='';
  files.forEach(function(it,i){
   var c=document.createElement('div');c.className='mg-card'+(it.bad?' bad':'');c.draggable=true;
-  c.innerHTML='<button class="mg-x" type="button" title="Remove">✕</button><div class="mg-thumb">'+(it.thumb?'<img src="'+it.thumb+'" alt="">':(it.bad?'<span class="mg-ph">⚠️</span>':'<span class="mg-load"></span>'))+'</div><div class="mg-nm">'+it.f.name+'</div>';
+  var th=it.thumb?'<img src="'+it.thumb+'" alt="">':(it.bad?'<span class="mg-ph">⚠️</span>':(it.done?'<span class="mg-ph">📄</span>':'<span class="mg-load"></span>'));
+  c.innerHTML='<button class="mg-x" type="button" title="Remove">✕</button><div class="mg-thumb">'+th+'</div><div class="mg-nm">'+it.f.name+(it.pages?' <span style="color:#9a9aa5;font-weight:600">• '+it.pages+'p</span>':'')+'</div>';
   c.querySelector('.mg-x').onclick=function(){files.splice(i,1);render();};
   c.addEventListener('dragstart',function(){dragIdx=i;c.classList.add('drag');});
   c.addEventListener('dragend',function(){c.classList.remove('drag');dragIdx=null;});
